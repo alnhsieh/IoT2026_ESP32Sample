@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>溫控面板</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Noto+Sans+TC:wght@300;400;700&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #07080f;
+    --surface: #0f1117;
+    --border: #1c1f2e;
+    --card: #0d0f1a;
+    --text: #dde1f0;
+    --muted: #525878;
+    --blue: #4f8eff;
+    --cyan: #00d4ff;
+    --green: #00ff88;
+    --yellow: #ffd166;
+    --red: #ff4d6d;
+    --red-dim: rgba(255,77,109,0.15);
+    --green-dim: rgba(0,255,136,0.08);
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Noto Sans TC', sans-serif;
+    min-height: 100vh;
+    padding: 0 0 60px;
+    background-image:
+      radial-gradient(ellipse 90% 40% at 50% -5%, rgba(79,142,255,0.10) 0%, transparent 60%);
+  }
+
+  /* ── top bar ── */
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(13,15,26,0.9);
+    backdrop-filter: blur(8px);
+    position: sticky; top: 0; z-index: 50;
+  }
+  .topbar-left { display: flex; align-items: center; gap: 12px; }
+  .back-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    color: var(--muted); font-size: 13px;
+    text-decoration: none;
+    font-family: 'Space Mono', monospace;
+    transition: color 0.2s;
+  }
+  .back-btn:hover { color: var(--cyan); }
+  .page-title {
+    font-family: 'Space Mono', monospace;
+    font-size: 14px;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: 0.05em;
+  }
+  .refresh-badge {
+    display: flex; align-items: center; gap: 6px;
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+  }
+  .refresh-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--green);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  .refresh-dot.paused { background: var(--muted); animation: none; }
+
+  /* ── container ── */
+  .container { max-width: 520px; margin: 0 auto; padding: 20px 16px; }
+
+  /* ── alarm banner ── */
+  .alarm-banner {
+    display: none;
+    background: linear-gradient(135deg, rgba(255,77,109,0.15), rgba(255,77,109,0.05));
+    border: 1px solid rgba(255,77,109,0.4);
+    border-radius: 14px;
+    padding: 14px 18px;
+    margin-bottom: 18px;
+    animation: alarm-flash 1s ease-in-out infinite alternate;
+  }
+  .alarm-banner.show { display: flex; align-items: center; gap: 12px; }
+  .alarm-icon { font-size: 22px; }
+  .alarm-text { font-size: 13px; color: var(--red); font-weight: 600; }
+  .alarm-sub  { font-size: 11px; color: rgba(255,77,109,0.7); margin-top: 2px; }
+
+  /* ── big gauges row ── */
+  .gauges { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 18px; }
+
+  .gauge-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 20px 16px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.4s;
+  }
+  .gauge-card.alarm { border-color: rgba(255,77,109,0.5); background: rgba(255,77,109,0.04); }
+  .gauge-card.normal { border-color: rgba(0,255,136,0.2); }
+
+  .gauge-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+
+  /* SVG arc gauge */
+  .arc-wrap { position: relative; width: 110px; height: 64px; margin: 0 auto 10px; }
+  .arc-wrap svg { width: 110px; height: 64px; overflow: visible; }
+  .arc-track { fill: none; stroke: var(--border); stroke-width: 7; stroke-linecap: round; }
+  .arc-fill  { fill: none; stroke-width: 7; stroke-linecap: round;
+               transition: stroke-dashoffset 0.8s ease, stroke 0.4s; }
+
+  .gauge-value {
+    font-family: 'Space Mono', monospace;
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1;
+    color: #fff;
+  }
+  .gauge-unit { font-size: 13px; color: var(--muted); margin-left: 2px; }
+  .gauge-limit { font-size: 10px; color: var(--muted); margin-top: 6px; }
+  .gauge-limit span { color: var(--yellow); }
+
+  /* ── stat row ── */
+  .stat-row {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 10px; margin-bottom: 18px;
+  }
+  .stat-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 14px 10px;
+    text-align: center;
+  }
+  .stat-icon { font-size: 18px; margin-bottom: 6px; }
+  .stat-val {
+    font-family: 'Space Mono', monospace;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--cyan);
+  }
+  .stat-lbl { font-size: 10px; color: var(--muted); margin-top: 3px; }
+
+  /* ── chart ── */
+  .chart-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    overflow: hidden;
+    margin-bottom: 18px;
+  }
+  .chart-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+  }
+  .chart-title {
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+  .chart-legend { display: flex; gap: 14px; }
+  .legend-item { display: flex; align-items: center; gap: 5px; font-size: 10px; color: var(--muted); }
+  .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+
+  canvas#chart { display: block; width: 100%; height: 140px; padding: 10px 12px 8px; }
+
+  /* ── config card ── */
+  .config-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    overflow: hidden;
+    margin-bottom: 18px;
+  }
+  .config-header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+  }
+  .config-title {
+    font-family: 'Space Mono', monospace;
+    font-size: 11px; letter-spacing: 0.1em;
+    color: var(--muted); text-transform: uppercase;
+  }
+  .config-body { padding: 16px 18px; }
+
+  .slider-group { margin-bottom: 18px; }
+  .slider-group:last-of-type { margin-bottom: 0; }
+  .slider-label {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 8px;
+  }
+  .slider-name { font-size: 13px; color: var(--text); }
+  .slider-val {
+    font-family: 'Space Mono', monospace;
+    font-size: 14px; font-weight: 700;
+  }
+  .slider-val.temp { color: var(--red); }
+  .slider-val.humi { color: var(--cyan); }
+
+  input[type=range] {
+    -webkit-appearance: none;
+    width: 100%; height: 6px;
+    background: var(--border);
+    border-radius: 3px; outline: none; cursor: pointer;
+  }
+  input[type=range].temp::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 18px; height: 18px; border-radius: 50%;
+    background: var(--red); cursor: pointer;
+    box-shadow: 0 0 8px rgba(255,77,109,0.5);
+  }
+  input[type=range].humi::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 18px; height: 18px; border-radius: 50%;
+    background: var(--cyan); cursor: pointer;
+    box-shadow: 0 0 8px rgba(0,212,255,0.5);
+  }
+
+  .btn-apply {
+    width: 100%; margin-top: 16px;
+    background: linear-gradient(135deg, #1a4fff 0%, var(--cyan) 100%);
+    color: #000; font-family: 'Space Mono', monospace;
+    font-weight: 700; font-size: 12px; letter-spacing: 0.08em;
+    padding: 13px; border: none; border-radius: 10px;
+    cursor: pointer; transition: opacity 0.2s;
+  }
+  .btn-apply:hover { opacity: 0.88; }
+  .btn-apply:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* ── info card ── */
+  .info-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    overflow: hidden;
+    margin-bottom: 18px;
+  }
+  .info-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 13px 18px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+  .info-row:last-child { border-bottom: none; }
+  .info-key { color: var(--muted); }
+  .info-val { font-family: 'Space Mono', monospace; font-size: 12px; color: var(--text); }
+  .info-val.green { color: var(--green); }
+
+  /* ── restart btn ── */
+  .btn-restart {
+    width: 100%;
+    background: transparent;
+    border: 1px solid rgba(255,77,109,0.3);
+    color: rgba(255,77,109,0.7);
+    font-family: 'Space Mono', monospace;
+    font-size: 12px; padding: 13px;
+    border-radius: 10px; cursor: pointer;
+    transition: all 0.2s; letter-spacing: 0.06em;
+  }
+  .btn-restart:hover { background: rgba(255,77,109,0.08); border-color: var(--red); color: var(--red); }
+
+  /* ── toast ── */
+  #toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    padding: 11px 22px; border-radius: 12px;
+    font-family: 'Space Mono', monospace; font-size: 12px;
+    white-space: nowrap; opacity: 0; pointer-events: none;
+    transition: opacity 0.3s; z-index: 200;
+  }
+  #toast.show { opacity: 1; }
+  #toast.ok   { background: rgba(0,255,136,0.9); color: #000; }
+  #toast.err  { background: rgba(255,77,109,0.9); color: #fff; }
+  #toast.info { background: rgba(0,212,255,0.9); color: #000; }
+
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
+  @keyframes alarm-flash { from{opacity:1} to{opacity:0.6} }
+</style>
+</head>
+<body>
+
+<!-- ── top bar ── -->
+<div class="topbar">
+  <div class="topbar-left">
+    <a href="/" class="back-btn">← 首頁</a>
+    <span style="color:var(--border)">|</span>
+    <span class="page-title">🌡 溫控面板</span>
+  </div>
+  <div class="refresh-badge">
+    <div class="refresh-dot" id="rdot"></div>
+    <span id="refresh-label">每 2 秒更新</span>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- ── alarm banner ── -->
+  <div class="alarm-banner" id="alarm-banner">
+    <div class="alarm-icon">🚨</div>
+    <div>
+      <div class="alarm-text" id="alarm-text">警報觸發</div>
+      <div class="alarm-sub" id="alarm-sub">請檢查環境狀態</div>
+    </div>
+  </div>
+
+  <!-- ── gauges ── -->
+  <div class="gauges">
+
+    <!-- 溫度 -->
+    <div class="gauge-card" id="temp-card">
+      <div class="gauge-label">溫度</div>
+      <div class="arc-wrap">
+        <svg viewBox="0 0 110 64">
+          <!-- half-circle arc: cx=55 cy=60 r=46, from 180° to 0° -->
+          <path class="arc-track"
+            d="M 9,60 A 46,46 0 0,1 101,60"
+            stroke-dasharray="145" stroke-dashoffset="0"/>
+          <path class="arc-fill" id="temp-arc"
+            d="M 9,60 A 46,46 0 0,1 101,60"
+            stroke="#ff4d6d"
+            stroke-dasharray="145" stroke-dashoffset="145"/>
+        </svg>
+      </div>
+      <div class="gauge-value" id="temp-val">--<span class="gauge-unit">°C</span></div>
+      <div class="gauge-limit">上限 <span id="temp-lim">--</span>°C</div>
+    </div>
+
+    <!-- 濕度 -->
+    <div class="gauge-card" id="humi-card">
+      <div class="gauge-label">濕度</div>
+      <div class="arc-wrap">
+        <svg viewBox="0 0 110 64">
+          <path class="arc-track"
+            d="M 9,60 A 46,46 0 0,1 101,60"
+            stroke-dasharray="145" stroke-dashoffset="0"/>
+          <path class="arc-fill" id="humi-arc"
+            d="M 9,60 A 46,46 0 0,1 101,60"
+            stroke="#00d4ff"
+            stroke-dasharray="145" stroke-dashoffset="145"/>
+        </svg>
+      </div>
+      <div class="gauge-value" id="humi-val">--<span class="gauge-unit">%</span></div>
+      <div class="gauge-limit">上限 <span id="humi-lim">--</span>%</div>
+    </div>
+
+  </div>
+
+  <!-- ── stats ── -->
+  <div class="stat-row">
+    <div class="stat-card">
+      <div class="stat-icon">📶</div>
+      <div class="stat-val" id="stat-ssid" style="font-size:11px">--</div>
+      <div class="stat-lbl">WiFi</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">⏱</div>
+      <div class="stat-val" id="stat-uptime">--</div>
+      <div class="stat-lbl">上線時間</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">💾</div>
+      <div class="stat-val" id="stat-mem">--</div>
+      <div class="stat-lbl">可用記憶體</div>
+    </div>
+  </div>
+
+  <!-- ── history chart ── -->
+  <div class="chart-card">
+    <div class="chart-header">
+      <span class="chart-title">歷史趨勢（最近 30 筆）</span>
+      <div class="chart-legend">
+        <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div>溫度</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--cyan)"></div>濕度</div>
+      </div>
+    </div>
+    <canvas id="chart"></canvas>
+  </div>
+
+  <!-- ── config ── -->
+  <div class="config-card">
+    <div class="config-header">
+      <span style="font-size:15px">⚙️</span>
+      <span class="config-title">警報閾值設定</span>
+    </div>
+    <div class="config-body">
+
+      <div class="slider-group">
+        <div class="slider-label">
+          <span class="slider-name">🌡 溫度上限</span>
+          <span class="slider-val temp" id="temp-slider-val">30°C</span>
+        </div>
+        <input type="range" class="temp" id="temp-slider"
+               min="15" max="60" value="30"
+               oninput="document.getElementById('temp-slider-val').textContent=this.value+'°C'">
+      </div>
+
+      <div class="slider-group">
+        <div class="slider-label">
+          <span class="slider-name">💧 濕度上限</span>
+          <span class="slider-val humi" id="humi-slider-val">70%</span>
+        </div>
+        <input type="range" class="humi" id="humi-slider"
+               min="20" max="100" value="70"
+               oninput="document.getElementById('humi-slider-val').textContent=this.value+'%'">
+      </div>
+
+      <button class="btn-apply" id="btn-apply" onclick="applyConfig()">套用設定</button>
+    </div>
+  </div>
+
+  <!-- ── device info ── -->
+  <div class="info-card">
+    <div class="config-header" style="border-bottom:1px solid var(--border)">
+      <span style="font-size:15px">💡</span>
+      <span class="config-title">裝置資訊</span>
+    </div>
+    <div class="info-row"><span class="info-key">裝置名稱</span><span class="info-val" id="d-name">--</span></div>
+    <div class="info-row"><span class="info-key">IP 位址</span><span class="info-val green" id="d-ip">--</span></div>
+    <div class="info-row"><span class="info-key">請求次數</span><span class="info-val" id="d-req">--</span></div>
+    <div class="info-row"><span class="info-key">錯誤次數</span><span class="info-val" id="d-err">--</span></div>
+  </div>
+
+  <button class="btn-restart" onclick="restartDevice()">🔄 重新啟動裝置</button>
+
+</div>
+<div id="toast"></div>
+
+<script>
+// ── history buffers ──
+const MAX_POINTS = 30;
+const tempHistory = [];
+const humiHistory = [];
+
+// ── canvas chart ──
+let canvas, ctx;
+
+function resizeCanvas() {
+  if (!canvas) return;
+  canvas.width  = canvas.offsetWidth  * window.devicePixelRatio;
+  canvas.height = canvas.offsetHeight * window.devicePixelRatio;
+  ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+  drawChart();
+}
+
+function drawChart() {
+  const W = canvas.offsetWidth;
+  const H = canvas.offsetHeight;
+  ctx.clearRect(0, 0, W, H);
+
+  if (tempHistory.length < 2) return;
+
+  const pad = { t: 6, b: 20, l: 28, r: 8 };
+  const cw = W - pad.l - pad.r;
+  const ch = H - pad.t - pad.b;
+
+  // grid
+  ctx.strokeStyle = "rgba(255,255,255,0.05)";
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.t + (ch / 4) * i;
+    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(W - pad.r, y); ctx.stroke();
+  }
+
+  // y-axis labels
+  const allVals = [...tempHistory, ...humiHistory];
+  const minV = Math.max(0,   Math.floor(Math.min(...allVals) - 5));
+  const maxV = Math.min(100, Math.ceil( Math.max(...allVals) + 5));
+  ctx.fillStyle = "rgba(255,255,255,0.25)";
+  ctx.font = "10px 'Space Mono', monospace";
+  ctx.textAlign = "right";
+  for (let i = 0; i <= 4; i++) {
+    const val = maxV - ((maxV - minV) / 4) * i;
+    ctx.fillText(Math.round(val), pad.l - 4, pad.t + (ch / 4) * i + 4);
+  }
+
+  function toX(i, arr) { return pad.l + (i / (arr.length - 1)) * cw; }
+  function toY(v)       { return pad.t + ch - ((v - minV) / (maxV - minV)) * ch; }
+
+  function drawLine(data, color, gStart, gEnd) {
+    if (data.length < 2) return;
+    const grad = ctx.createLinearGradient(0, pad.t, 0, pad.t + ch);
+    grad.addColorStop(0, gStart); grad.addColorStop(1, gEnd);
+
+    // fill
+    ctx.beginPath();
+    ctx.moveTo(toX(0, data), toY(data[0]));
+    data.forEach((v, i) => { if (i > 0) ctx.lineTo(toX(i, data), toY(v)); });
+    ctx.lineTo(toX(data.length - 1, data), pad.t + ch);
+    ctx.lineTo(toX(0, data), pad.t + ch);
+    ctx.closePath();
+    ctx.fillStyle = grad; ctx.fill();
+
+    // line
+    ctx.beginPath();
+    ctx.moveTo(toX(0, data), toY(data[0]));
+    data.forEach((v, i) => { if (i > 0) ctx.lineTo(toX(i, data), toY(v)); });
+    ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.stroke();
+
+    // last dot
+    const lx = toX(data.length - 1, data);
+    const ly = toY(data[data.length - 1]);
+    ctx.beginPath(); ctx.arc(lx, ly, 4, 0, Math.PI * 2);
+    ctx.fillStyle = color; ctx.fill();
+  }
+
+  drawLine(tempHistory, "#ff4d6d", "rgba(255,77,109,0.25)", "rgba(255,77,109,0.01)");
+  drawLine(humiHistory, "#00d4ff", "rgba(0,212,255,0.20)", "rgba(0,212,255,0.01)");
+}
+
+// ── gauge arc update ──
+function setArc(arcEl, pct, color) {
+  const total = 145;
+  const offset = total - (total * Math.min(1, Math.max(0, pct)));
+  arcEl.style.strokeDashoffset = offset;
+  arcEl.style.stroke = color;
+}
+
+function pctColor(pct) {
+  if (pct >= 0.9) return "#ff4d6d";
+  if (pct >= 0.7) return "#ffd166";
+  return "#00ff88";
+}
+
+// ── fetch & update ──
+let lastUpdate = 0;
+let tempMax = 30, humiMax = 70;
+
+async function fetchData() {
+  try {
+    const res  = await fetch("/api/data");
+    const data = await res.json();
+    lastUpdate = Date.now();
+
+    // update globals
+    tempMax = data.temp_max || tempMax;
+    humiMax = data.humi_max || humiMax;
+
+    // gauges
+    const tempPct = data.temp / tempMax;
+    const humiPct = data.humi / humiMax;
+    document.getElementById("temp-val").innerHTML = data.temp + '<span class="gauge-unit">°C</span>';
+    document.getElementById("humi-val").innerHTML = data.humi + '<span class="gauge-unit">%</span>';
+    document.getElementById("temp-lim").textContent = tempMax;
+    document.getElementById("humi-lim").textContent = humiMax;
+
+    setArc(document.getElementById("temp-arc"), tempPct, pctColor(tempPct));
+    setArc(document.getElementById("humi-arc"), humiPct, pctColor(humiPct));
+
+    // alarm state
+    const tempCard = document.getElementById("temp-card");
+    const humiCard = document.getElementById("humi-card");
+    tempCard.className = "gauge-card " + (data.temp_alarm ? "alarm" : "normal");
+    humiCard.className = "gauge-card " + (data.humi_alarm ? "alarm" : "normal");
+
+    const alarmBanner = document.getElementById("alarm-banner");
+    const alarms = [];
+    if (data.temp_alarm) alarms.push("溫度過高 (" + data.temp + "°C > " + tempMax + "°C)");
+    if (data.humi_alarm) alarms.push("濕度過高 (" + data.humi + "% > " + humiMax + "%)");
+    if (alarms.length) {
+      alarmBanner.classList.add("show");
+      document.getElementById("alarm-text").textContent = "⚠ 警報：" + alarms.join("  ／  ");
+      document.getElementById("alarm-sub").textContent = "請檢查環境並調整設定";
+    } else {
+      alarmBanner.classList.remove("show");
+    }
+
+    // stats
+    document.getElementById("stat-ssid").textContent   = data.ssid || "--";
+    document.getElementById("stat-mem").textContent    = data.free_memory ? Math.round(data.free_memory / 1024) + "K" : "--";
+    const up = data.uptime || 0;
+    const h = Math.floor(up / 3600), m = Math.floor((up % 3600) / 60), s = Math.floor(up % 60);
+    document.getElementById("stat-uptime").textContent = (h ? h + "h" : "") + (m ? m + "m" : "") + s + "s";
+
+    // device info
+    document.getElementById("d-name").textContent = data.device_name || "--";
+    document.getElementById("d-ip").textContent   = data.ip || "--";
+    document.getElementById("d-req").textContent  = data.requests ?? "--";
+    document.getElementById("d-err").textContent  = data.errors ?? "--";
+
+    // slider sync (first load)
+    if (!window._sliderInit) {
+      document.getElementById("temp-slider").value = tempMax;
+      document.getElementById("humi-slider").value = humiMax;
+      document.getElementById("temp-slider-val").textContent = tempMax + "°C";
+      document.getElementById("humi-slider-val").textContent = humiMax + "%";
+      window._sliderInit = true;
+    }
+
+    // history
+    tempHistory.push(data.temp);
+    humiHistory.push(data.humi);
+    if (tempHistory.length > MAX_POINTS) tempHistory.shift();
+    if (humiHistory.length > MAX_POINTS) humiHistory.shift();
+    drawChart();
+
+    // refresh dot
+    const dot = document.getElementById("rdot");
+    dot.classList.remove("paused");
+    dot.style.background = "#00ff88";
+    setTimeout(() => dot.style.background = "", 300);
+
+  } catch (e) {
+    console.warn("Fetch error:", e);
+    document.getElementById("rdot").classList.add("paused");
+  }
+}
+
+// ── apply config ──
+async function applyConfig() {
+  const btn = document.getElementById("btn-apply");
+  btn.disabled = true;
+  btn.textContent = "套用中...";
+  const payload = {
+    temp_max: parseInt(document.getElementById("temp-slider").value),
+    humi_max: parseInt(document.getElementById("humi-slider").value)
+  };
+  try {
+    const res  = await fetch("/api/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (data.status === "success") {
+      showToast("設定已套用", "ok");
+      window._sliderInit = false;
+      await fetchData();
+    } else {
+      showToast("套用失敗", "err");
+    }
+  } catch (e) {
+    showToast("無法連線", "err");
+  }
+  btn.disabled = false;
+  btn.textContent = "套用設定";
+}
+
+// ── restart ──
+async function restartDevice() {
+  if (!confirm("確定要重新啟動裝置嗎？")) return;
+  try {
+    await fetch("/api/restart", { method: "POST" });
+    showToast("裝置重新啟動中...", "info");
+  } catch (e) {
+    showToast("重啟指令已發送", "info");
+  }
+}
+
+// ── toast ──
+function showToast(msg, type, dur = 2500) {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.className   = "show " + type;
+  clearTimeout(t._t);
+  t._t = setTimeout(() => t.className = "", dur);
+}
+
+// ── init ──
+window.addEventListener("load", () => {
+  canvas = document.getElementById("chart");
+  ctx    = canvas.getContext("2d");
+  resizeCanvas();
+  window.addEventListener("resize", resizeCanvas);
+  fetchData();
+  setInterval(fetchData, 2000);
+});
+</script>
+</body>
+</html>

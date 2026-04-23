@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ESP32 首頁</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Noto+Sans+TC:wght@300;400;700&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #030a06;
+    --surface: #0a1610;
+    --border: #1a3025;
+    --accent: #00ff88;
+    --accent2: #00cc6a;
+    --blue: #00d4ff;
+    --text: #e2f0e8;
+    --muted: #4a7a5a;
+    --card: #0d1f16;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Noto Sans TC', sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px 48px;
+    background-image:
+      radial-gradient(ellipse 70% 50% at 50% 0%, rgba(0,255,136,0.10) 0%, transparent 65%),
+      linear-gradient(180deg, #030a06 0%, #010503 100%);
+  }
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image:
+      linear-gradient(rgba(0,255,136,0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,255,136,0.025) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none; z-index: 0;
+  }
+
+  .container { position: relative; z-index: 1; width: 100%; max-width: 480px; }
+
+  /* success banner */
+  .banner {
+    text-align: center;
+    padding: 32px 20px 28px;
+    margin-bottom: 20px;
+  }
+  .check-ring {
+    width: 72px; height: 72px;
+    border-radius: 50%;
+    border: 2px solid var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 20px;
+    background: rgba(0,255,136,0.07);
+    position: relative;
+    animation: ring-glow 2.4s ease-in-out infinite;
+  }
+  .check-ring svg { width: 36px; height: 36px; }
+  .check-path {
+    stroke-dasharray: 60;
+    stroke-dashoffset: 60;
+    animation: draw-check 0.6s 0.2s ease-out forwards;
+  }
+
+  .status-badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: rgba(0,255,136,0.1);
+    border: 1px solid rgba(0,255,136,0.3);
+    border-radius: 999px;
+    padding: 6px 16px;
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 0.08em;
+    margin-bottom: 18px;
+  }
+  .status-badge .dot {
+    width: 7px; height: 7px;
+    background: var(--accent);
+    border-radius: 50%;
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+
+  h1 {
+    font-family: 'Space Mono', monospace;
+    font-size: clamp(20px, 5.5vw, 28px);
+    font-weight: 700;
+    color: #fff;
+    line-height: 1.2;
+  }
+  h1 span { color: var(--accent); }
+  .subtitle { color: var(--muted); font-size: 13px; margin-top: 8px; }
+
+  /* info cards */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+    margin-bottom: 14px;
+    animation: slide-up 0.5s ease-out both;
+  }
+  .card:nth-child(1) { animation-delay: 0.1s; }
+  .card:nth-child(2) { animation-delay: 0.2s; }
+  .card:nth-child(3) { animation-delay: 0.3s; }
+
+  .card-header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .card-icon { font-size: 16px; }
+  .card-title {
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+
+  .info-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .info-row:last-child { border-bottom: none; }
+  .info-label { font-size: 12px; color: var(--muted); }
+  .info-value {
+    font-family: 'Space Mono', monospace;
+    font-size: 13px;
+    color: var(--text);
+    text-align: right;
+  }
+  .info-value.highlight { color: var(--accent); }
+  .info-value.loading { color: var(--muted); animation: blink 1s step-end infinite; }
+
+  /* signal display */
+  .signal-row { padding: 16px 20px; display: flex; align-items: center; gap: 16px; }
+  .signal-bars { display: flex; align-items: flex-end; gap: 4px; }
+  .bar { background: var(--border); border-radius: 2px; transition: background 0.3s; }
+  .bar:nth-child(1) { width: 5px; height: 8px; }
+  .bar:nth-child(2) { width: 5px; height: 13px; }
+  .bar:nth-child(3) { width: 5px; height: 18px; }
+  .bar:nth-child(4) { width: 5px; height: 23px; }
+  .bars-4 .bar { background: var(--accent); }
+  .bars-3 .bar:nth-child(-n+3) { background: var(--accent2); }
+  .bars-2 .bar:nth-child(-n+2) { background: #ffcc00; }
+  .bars-1 .bar:nth-child(1) { background: #ff4466; }
+
+  .signal-info { flex: 1; }
+  .signal-ssid { font-size: 15px; font-weight: 600; color: #fff; }
+  .signal-rssi { font-family: 'Space Mono', monospace; font-size: 11px; color: var(--muted); margin-top: 3px; }
+
+  /* sensor button */
+  .btn-sensor {
+    display: block;
+    width: 100%;
+    background: linear-gradient(135deg, #004d99 0%, #0077ff 100%);
+    color: #fff;
+    font-family: 'Space Mono', monospace;
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.08em;
+    padding: 15px;
+    border-radius: 12px;
+    text-align: center;
+    text-decoration: none;
+    margin-bottom: 10px;
+    transition: opacity 0.2s, transform 0.1s;
+    box-shadow: 0 4px 20px rgba(0,119,255,0.25);
+  }
+  .btn-sensor:hover { opacity: 0.88; }
+  .btn-sensor:active { transform: scale(0.98); }
+
+  /* forget button */
+  .btn-forget {
+    width: 100%;
+    background: transparent;
+    border: 1px solid rgba(255,68,102,0.3);
+    color: rgba(255,68,102,0.7);
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    padding: 13px;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.2s;
+    letter-spacing: 0.06em;
+    margin-top: 6px;
+  }
+  .btn-forget:hover { background: rgba(255,68,102,0.08); border-color: #ff4466; color: #ff4466; }
+
+  /* uptime */
+  #uptime { font-variant-numeric: tabular-nums; }
+
+  @keyframes ring-glow {
+    0%,100% { box-shadow: 0 0 0 0 rgba(0,255,136,0.3); }
+    50% { box-shadow: 0 0 0 10px rgba(0,255,136,0); }
+  }
+  @keyframes draw-check {
+    to { stroke-dashoffset: 0; }
+  }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+  @keyframes blink { 50%{opacity:0} }
+  @keyframes slide-up {
+    from { opacity:0; transform: translateY(16px); }
+    to { opacity:1; transform: translateY(0); }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <div class="banner">
+    <div class="check-ring">
+      <svg viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <polyline class="check-path" points="7,18 15,26 29,10"
+          stroke="#00ff88" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+    <div class="status-badge"><span class="dot"></span>CONNECTED</div>
+    <h1>連線<span>成功</span></h1>
+    <p class="subtitle">ESP32 已成功連接至網路</p>
+  </div>
+
+  <!-- WiFi info -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-icon">📶</span>
+      <span class="card-title">WiFi 資訊</span>
+    </div>
+    <div class="signal-row">
+      <div class="signal-bars" id="signal-bars">
+        <div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div>
+      </div>
+      <div class="signal-info">
+        <div class="signal-ssid" id="wifi-ssid">--</div>
+        <div class="signal-rssi" id="wifi-rssi">讀取中...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Network info -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-icon">🌐</span>
+      <span class="card-title">網路資訊</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">IP 位址</span>
+      <span class="info-value highlight" id="info-ip">讀取中...</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">子網路遮罩</span>
+      <span class="info-value" id="info-subnet">--</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">預設閘道</span>
+      <span class="info-value" id="info-gateway">--</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">DNS 伺服器</span>
+      <span class="info-value" id="info-dns">--</span>
+    </div>
+  </div>
+
+  <!-- Device info -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-icon">💡</span>
+      <span class="card-title">裝置資訊</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">裝置型號</span>
+      <span class="info-value">ESP32</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">韌體</span>
+      <span class="info-value">MicroPython</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">上線時間</span>
+      <span class="info-value" id="uptime">--</span>
+    </div>
+  </div>
+
+  <!-- 溫控面板入口 -->
+  <a href="/sensor" class="btn-sensor">
+    🌡 前往溫控面板
+  </a>
+
+  <button class="btn-forget" onclick="forgetWifi()">🗑 忘記此 WiFi 並重設</button>
+
+</div>
+
+<script>
+let startTime = Date.now();
+let uptimeTimer;
+
+function startUptime() {
+  uptimeTimer = setInterval(() => {
+    const sec = Math.floor((Date.now() - startTime) / 1000);
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = sec % 60;
+    document.getElementById("uptime").textContent =
+      (h ? h + "h " : "") + (m ? m + "m " : "") + s + "s";
+  }, 1000);
+}
+
+async function loadStatus() {
+  try {
+    const res = await fetch("/status");
+    const data = await res.json();
+    if (data.connected) {
+      document.getElementById("info-ip").textContent = data.ip || "--";
+      document.getElementById("info-subnet").textContent = data.subnet || "--";
+      document.getElementById("info-gateway").textContent = data.gateway || "--";
+      document.getElementById("info-dns").textContent = data.dns || "--";
+      document.getElementById("wifi-ssid").textContent = data.ssid || "--";
+      // fake RSSI display for now (MicroPython doesn't expose sta RSSI easily)
+      document.getElementById("wifi-rssi").textContent = "已連線";
+      document.getElementById("signal-bars").className = "signal-bars bars-4";
+    }
+  } catch (e) {
+    document.getElementById("info-ip").textContent = "無法讀取";
+  }
+}
+
+async function forgetWifi() {
+  if (!confirm("確定要忘記此 WiFi 設定並重啟裝置嗎？")) return;
+  try {
+    await fetch("/forget", { method: "POST" });
+  } catch (e) { /* ESP32 will reboot */ }
+  alert("設定已清除，裝置重啟後請重新連接至 ESP32-Setup 熱點進行設定。");
+}
+
+loadStatus();
+startUptime();
+// refresh status every 10 seconds
+setInterval(loadStatus, 10000);
+</script>
+</body>
+</html>

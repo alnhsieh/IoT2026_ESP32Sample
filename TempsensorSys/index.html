@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ESP32 WiFi 設定</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Noto+Sans+TC:wght@300;400;700&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0a0e1a;
+    --surface: #111827;
+    --border: #1e2d45;
+    --accent: #00d4ff;
+    --accent2: #0077ff;
+    --success: #00ff88;
+    --error: #ff4466;
+    --text: #e2e8f0;
+    --muted: #64748b;
+    --card: #151f30;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Noto Sans TC', sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px 48px;
+    background-image:
+      radial-gradient(ellipse 80% 40% at 50% -10%, rgba(0,212,255,0.12) 0%, transparent 70%),
+      linear-gradient(180deg, #0a0e1a 0%, #050810 100%);
+  }
+
+  /* grid pattern */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,212,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,212,255,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .container { position: relative; z-index: 1; width: 100%; max-width: 480px; }
+
+  /* header */
+  .header { text-align: center; margin-bottom: 36px; padding-top: 20px; }
+  .chip-badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: rgba(0,212,255,0.08);
+    border: 1px solid rgba(0,212,255,0.25);
+    border-radius: 999px;
+    padding: 6px 16px;
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 0.08em;
+    margin-bottom: 20px;
+  }
+  .chip-badge .dot {
+    width: 7px; height: 7px;
+    background: var(--accent);
+    border-radius: 50%;
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  h1 {
+    font-family: 'Space Mono', monospace;
+    font-size: clamp(22px, 6vw, 30px);
+    font-weight: 700;
+    color: #fff;
+    line-height: 1.2;
+  }
+  h1 span { color: var(--accent); }
+  .subtitle { color: var(--muted); font-size: 13px; margin-top: 8px; }
+
+  /* card */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+    margin-bottom: 16px;
+  }
+  .card-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .card-title {
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+
+  /* scan button */
+  .btn-scan {
+    background: rgba(0,212,255,0.1);
+    border: 1px solid rgba(0,212,255,0.3);
+    color: var(--accent);
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    padding: 6px 14px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+    letter-spacing: 0.05em;
+  }
+  .btn-scan:hover { background: rgba(0,212,255,0.2); border-color: var(--accent); }
+  .btn-scan:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-scan.scanning { animation: spin-text 0.8s linear infinite; }
+
+  /* network list */
+  #network-list { list-style: none; }
+  .net-item {
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 20px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.15s;
+    position: relative;
+  }
+  .net-item:last-child { border-bottom: none; }
+  .net-item:hover { background: rgba(0,212,255,0.05); }
+  .net-item.selected { background: rgba(0,212,255,0.08); }
+  .net-item.selected::before {
+    content: '';
+    position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+    background: var(--accent);
+    border-radius: 0 2px 2px 0;
+  }
+
+  /* signal bars */
+  .signal { display: flex; align-items: flex-end; gap: 3px; flex-shrink: 0; }
+  .bar {
+    width: 4px; background: var(--border);
+    border-radius: 2px; transition: background 0.2s;
+  }
+  .bar:nth-child(1) { height: 6px; }
+  .bar:nth-child(2) { height: 10px; }
+  .bar:nth-child(3) { height: 14px; }
+  .bar:nth-child(4) { height: 18px; }
+  .bars-4 .bar { background: var(--success); }
+  .bars-3 .bar:nth-child(-n+3) { background: var(--accent); }
+  .bars-2 .bar:nth-child(-n+2) { background: #ffcc00; }
+  .bars-1 .bar:nth-child(1) { background: var(--error); }
+
+  .net-info { flex: 1; min-width: 0; }
+  .net-ssid { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .net-meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .lock-icon { font-size: 12px; color: var(--muted); flex-shrink: 0; }
+
+  .empty-state {
+    text-align: center; padding: 40px 20px;
+    color: var(--muted); font-size: 13px;
+  }
+  .empty-icon { font-size: 36px; margin-bottom: 12px; }
+
+  /* connect form */
+  .connect-form { padding: 20px; display: none; }
+  .connect-form.visible { display: block; }
+  .selected-ssid {
+    font-family: 'Space Mono', monospace;
+    color: var(--accent);
+    font-size: 14px;
+    margin-bottom: 16px;
+    padding: 10px 14px;
+    background: rgba(0,212,255,0.06);
+    border: 1px solid rgba(0,212,255,0.2);
+    border-radius: 8px;
+    display: flex; align-items: center; gap: 8px;
+  }
+
+  .input-group { margin-bottom: 14px; }
+  label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 6px; letter-spacing: 0.06em; }
+  input[type="password"], input[type="text"] {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: 'Space Mono', monospace;
+    font-size: 14px;
+    padding: 11px 14px;
+    border-radius: 10px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  input:focus { border-color: var(--accent); }
+
+  .show-pw { cursor: pointer; user-select: none; font-size: 11px; color: var(--muted); float: right; }
+
+  .btn-connect {
+    width: 100%;
+    background: linear-gradient(135deg, var(--accent2) 0%, var(--accent) 100%);
+    color: #000;
+    font-family: 'Space Mono', monospace;
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.08em;
+    padding: 14px;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: opacity 0.2s, transform 0.1s;
+    margin-top: 4px;
+  }
+  .btn-connect:hover { opacity: 0.9; }
+  .btn-connect:active { transform: scale(0.98); }
+  .btn-connect:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* status toast */
+  #toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    padding: 12px 24px;
+    border-radius: 12px;
+    font-family: 'Space Mono', monospace;
+    font-size: 13px;
+    white-space: nowrap;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.3s;
+    z-index: 100;
+  }
+  #toast.show { opacity: 1; }
+  #toast.info { background: rgba(0,119,255,0.9); color: #fff; }
+  #toast.success { background: rgba(0,255,136,0.9); color: #000; }
+  #toast.error { background: rgba(255,68,102,0.9); color: #fff; }
+
+  /* connecting overlay */
+  #overlay {
+    display: none; position: fixed; inset: 0; z-index: 200;
+    background: rgba(5,8,16,0.92);
+    flex-direction: column; align-items: center; justify-content: center; gap: 20px;
+    backdrop-filter: blur(6px);
+  }
+  #overlay.show { display: flex; }
+  .spinner {
+    width: 56px; height: 56px;
+    border: 3px solid rgba(0,212,255,0.15);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.9s linear infinite;
+  }
+  .overlay-text { font-family: 'Space Mono', monospace; color: var(--accent); font-size: 13px; letter-spacing: 0.1em; }
+  .overlay-ssid { color: var(--muted); font-size: 12px; }
+
+  /* poll indicator */
+  #poll-status { text-align: center; font-size: 12px; color: var(--muted); padding: 12px; display: none; }
+
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <div class="header">
+    <div class="chip-badge"><span class="dot"></span>ESP32 · AP MODE</div>
+    <h1>WiFi<span> 設定</span></h1>
+    <p class="subtitle">選擇要連接的無線網路</p>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">可用網路</span>
+      <button class="btn-scan" id="btn-scan" onclick="scanNetworks()">掃描</button>
+    </div>
+    <ul id="network-list">
+      <li class="empty-state">
+        <div class="empty-icon">📡</div>
+        <div>按下「掃描」搜尋附近的 WiFi 網路</div>
+      </li>
+    </ul>
+  </div>
+
+  <div class="card" id="connect-card" style="display:none">
+    <div class="card-header">
+      <span class="card-title">連線設定</span>
+    </div>
+    <div class="connect-form visible" id="connect-form">
+      <div class="selected-ssid">📶 <span id="form-ssid"></span></div>
+      <div class="input-group">
+        <label>WiFi 密碼 <span class="show-pw" onclick="togglePw()">顯示</span></label>
+        <input type="password" id="pw-input" placeholder="輸入密碼（開放網路可留空）">
+      </div>
+      <button class="btn-connect" id="btn-connect" onclick="doConnect()">連接網路</button>
+    </div>
+  </div>
+
+  <div id="poll-status">⏳ 正在等待連線結果...</div>
+
+</div>
+
+<div id="toast"></div>
+
+<div id="overlay">
+  <div class="spinner"></div>
+  <div class="overlay-text">正在連接中...</div>
+  <div class="overlay-ssid" id="overlay-ssid"></div>
+</div>
+
+<script>
+let selectedSSID = "";
+let selectedAuth = 0;
+
+function showToast(msg, type = "info", duration = 3000) {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.className = "show " + type;
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.className = "", duration);
+}
+
+function signalBarsClass(bars) {
+  return "signal bars-" + bars;
+}
+
+function signalLabel(rssi) {
+  if (rssi >= -55) return "強";
+  if (rssi >= -67) return "良";
+  if (rssi >= -78) return "弱";
+  return "差";
+}
+
+async function scanNetworks() {
+  const btn = document.getElementById("btn-scan");
+  btn.disabled = true;
+  btn.textContent = "掃描中...";
+  const list = document.getElementById("network-list");
+  list.innerHTML = '<li class="empty-state"><div class="empty-icon">🔍</div><div>掃描中，請稍候...</div></li>';
+
+  try {
+    const res = await fetch("/scan");
+    const nets = await res.json();
+    renderNetworks(nets);
+  } catch (e) {
+    showToast("掃描失敗，請重試", "error");
+    list.innerHTML = '<li class="empty-state"><div class="empty-icon">❌</div><div>掃描失敗</div></li>';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "重新掃描";
+  }
+}
+
+function renderNetworks(nets) {
+  const list = document.getElementById("network-list");
+  if (!nets.length) {
+    list.innerHTML = '<li class="empty-state"><div class="empty-icon">😶</div><div>找不到任何網路</div></li>';
+    return;
+  }
+  list.innerHTML = "";
+  nets.forEach(net => {
+    const bars = net.rssi >= -55 ? 4 : net.rssi >= -67 ? 3 : net.rssi >= -78 ? 2 : 1;
+    const li = document.createElement("li");
+    li.className = "net-item";
+    li.innerHTML = `
+      <div class="${signalBarsClass(bars)}">
+        <div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div>
+      </div>
+      <div class="net-info">
+        <div class="net-ssid">${escHtml(net.ssid)}</div>
+        <div class="net-meta">訊號 ${signalLabel(net.rssi)} (${net.rssi} dBm)</div>
+      </div>
+      ${net.auth !== 0 ? '<div class="lock-icon">🔒</div>' : '<div class="lock-icon" style="opacity:.3">🔓</div>'}
+    `;
+    li.onclick = () => selectNetwork(net.ssid, net.auth, li);
+    list.appendChild(li);
+  });
+}
+
+function selectNetwork(ssid, auth, el) {
+  document.querySelectorAll(".net-item").forEach(i => i.classList.remove("selected"));
+  el.classList.add("selected");
+  selectedSSID = ssid;
+  selectedAuth = auth;
+  document.getElementById("form-ssid").textContent = ssid;
+  document.getElementById("connect-card").style.display = "block";
+  document.getElementById("pw-input").value = "";
+  document.getElementById("connect-card").scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function togglePw() {
+  const inp = document.getElementById("pw-input");
+  const span = document.querySelector(".show-pw");
+  if (inp.type === "password") { inp.type = "text"; span.textContent = "隱藏"; }
+  else { inp.type = "password"; span.textContent = "顯示"; }
+}
+
+async function doConnect() {
+  if (!selectedSSID) return;
+  const pw  = document.getElementById("pw-input").value;
+  const btn = document.getElementById("btn-connect");
+
+  // 顯示等待 overlay
+  document.getElementById("overlay-ssid").textContent = selectedSSID;
+  document.getElementById("overlay").classList.add("show");
+  btn.disabled = true;
+
+  try {
+    const body = "ssid=" + encodeURIComponent(selectedSSID) + "&password=" + encodeURIComponent(pw);
+    // ESP32 同步連線，最多等 20 秒
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 20000);
+    const res  = await fetch("/connect", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body,
+      signal: controller.signal
+    });
+    clearTimeout(timer);
+    const data = await res.json();
+
+    document.getElementById("overlay").classList.remove("show");
+
+    if (data.status === "ok" && data.new_ip) {
+      showSuccessScreen(data.ssid, data.new_ip);
+    } else {
+      showToast("連線失敗，請確認密碼是否正確", "error", 4000);
+      btn.disabled = false;
+    }
+  } catch (e) {
+    document.getElementById("overlay").classList.remove("show");
+    showToast("連線逾時或請求失敗，請重試", "error", 4000);
+    btn.disabled = false;
+  }
+}
+
+function showSuccessScreen(ssid, ip) {
+  // 隱藏設定區塊
+  document.querySelector(".header").style.display = "none";
+  document.querySelectorAll(".card").forEach(c => c.style.display = "none");
+  document.getElementById("connect-card").style.display = "none";
+  document.getElementById("poll-status").style.display = "none";
+
+  // 插入成功畫面
+  const homeUrl = "http://" + ip + "/";
+  const el = document.createElement("div");
+  el.innerHTML = `
+    <div style="text-align:center;padding:48px 16px 32px;">
+      <div style="width:80px;height:80px;border-radius:50%;border:2px solid var(--success);
+                  display:flex;align-items:center;justify-content:center;margin:0 auto 24px;
+                  background:rgba(0,255,136,0.07);animation:ring-glow 2s ease-in-out infinite;">
+        <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
+          <polyline points="8,20 17,29 32,11" stroke="#00ff88" stroke-width="3.5"
+            stroke-linecap="round" stroke-linejoin="round"
+            style="stroke-dasharray:60;stroke-dashoffset:0"/>
+        </svg>
+      </div>
+      <div style="display:inline-flex;align-items:center;gap:8px;background:rgba(0,255,136,0.1);
+                  border:1px solid rgba(0,255,136,0.3);border-radius:999px;padding:6px 18px;
+                  font-family:'Space Mono',monospace;font-size:11px;color:var(--success);
+                  letter-spacing:.08em;margin-bottom:20px;">
+        <span style="width:7px;height:7px;background:var(--success);border-radius:50%;
+                     animation:pulse 1.6s ease-in-out infinite;display:inline-block;"></span>
+        CONNECTED
+      </div>
+      <h2 style="font-family:'Space Mono',monospace;font-size:24px;color:#fff;margin-bottom:8px;">
+        連線<span style="color:var(--success)">成功！</span>
+      </h2>
+      <p style="color:var(--muted);font-size:13px;margin-bottom:32px;">
+        已連接至 <strong style="color:var(--text);">${escHtml(ssid)}</strong>
+      </p>
+
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:16px;
+                  padding:20px;margin-bottom:24px;text-align:left;">
+        <div style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted);
+                    letter-spacing:.1em;margin-bottom:14px;">ESP32 網路位址</div>
+        <div style="font-family:'Space Mono',monospace;font-size:22px;color:var(--success);
+                    letter-spacing:.05em;">${escHtml(ip)}</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:6px;">
+          請將裝置切換回原本的 WiFi 網路後，開啟下方連結
+        </div>
+      </div>
+
+      <a href="${homeUrl}" target="_blank"
+         style="display:block;background:linear-gradient(135deg,#00aa55,#00ff88);
+                color:#000;font-family:'Space Mono',monospace;font-weight:700;
+                font-size:14px;letter-spacing:.08em;padding:16px;border-radius:12px;
+                text-decoration:none;transition:opacity .2s;"
+         onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
+        前往 ESP32 首頁 →
+      </a>
+      <p style="color:var(--muted);font-size:11px;margin-top:16px;">
+        或在瀏覽器手動輸入 <code style="color:var(--accent);">${escHtml(ip)}</code>
+      </p>
+    </div>
+  `;
+  document.querySelector(".container").appendChild(el);
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+// auto scan on load
+window.addEventListener("load", () => setTimeout(scanNetworks, 400));
+</script>
+</body>
+</html>

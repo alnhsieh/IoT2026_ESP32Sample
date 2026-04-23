@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ESP32 燈號控制</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --panel: #0f0f1a;
+    --border: #1e1e3a;
+    --text: #c8c8e8;
+    --dim: #4a4a6a;
+    --red-on: #ff2020;
+    --red-glow: #ff202080;
+    --green-on: #20ff60;
+    --green-glow: #20ff6080;
+    --yellow-on: #ffcc00;
+    --yellow-glow: #ffcc0080;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Share Tech Mono', monospace;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(var(--border) 1px, transparent 1px),
+      linear-gradient(90deg, var(--border) 1px, transparent 1px);
+    background-size: 40px 40px;
+    opacity: 0.15;
+    pointer-events: none;
+  }
+
+  .container { position: relative; width: 100%; max-width: 480px; }
+
+  header { text-align: center; margin-bottom: 32px; }
+
+  .title {
+    font-family: 'Orbitron', monospace;
+    font-weight: 900;
+    font-size: clamp(20px, 5vw, 28px);
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    color: #e0e0ff;
+    text-shadow: 0 0 20px #6060ff60;
+  }
+
+  .subtitle { font-size: 11px; color: var(--dim); letter-spacing: 3px; margin-top: 6px; }
+
+  /* Status bar */
+  .status-bar {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 4px; padding: 8px 14px; margin-bottom: 16px;
+    font-size: 11px; color: var(--dim);
+  }
+
+  .status-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #333; flex-shrink: 0; transition: all 0.3s;
+  }
+  .status-dot.connected { background: var(--green-on); box-shadow: 0 0 8px var(--green-glow); animation: blink 2s infinite; }
+  .status-dot.error     { background: var(--red-on);   box-shadow: 0 0 8px var(--red-glow); }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  /* Traffic mode badge */
+  .traffic-badge {
+    display: none; align-items: center; gap: 8px;
+    background: #15100a; border: 1px solid #ffcc0040;
+    border-radius: 4px; padding: 8px 14px; margin-bottom: 16px;
+    font-size: 11px; color: var(--yellow-on); letter-spacing: 2px;
+  }
+  .traffic-badge.visible { display: flex; }
+  .traffic-badge-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--yellow-on); box-shadow: 0 0 8px var(--yellow-glow);
+    animation: blink 0.8s infinite; flex-shrink: 0;
+  }
+  .traffic-seq { display: flex; gap: 6px; margin-left: auto; align-items: center; }
+  .seq-dot { width: 10px; height: 10px; border-radius: 50%; background: #2a2a2a; transition: all 0.3s; }
+  .seq-dot.red-active    { background: var(--red-on);    box-shadow: 0 0 6px var(--red-glow); }
+  .seq-dot.yellow-active { background: var(--yellow-on); box-shadow: 0 0 6px var(--yellow-glow); }
+  .seq-dot.green-active  { background: var(--green-on);  box-shadow: 0 0 6px var(--green-glow); }
+
+  /* LED Grid */
+  .led-grid { display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; }
+
+  .led-card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 6px; padding: 20px 24px;
+    display: flex; align-items: center; gap: 20px;
+    cursor: pointer; transition: all 0.2s;
+    position: relative; overflow: hidden; user-select: none;
+  }
+  /* disabled = no click, but full brightness so glow shows */
+  .led-card.disabled { cursor: not-allowed; pointer-events: none; }
+  .led-card::before { content:''; position:absolute; inset:0; opacity:0; transition:opacity 0.3s; }
+  .led-card:not(.disabled):active { transform: scale(0.98); }
+
+  .led-card.red.on::before    { background: radial-gradient(ellipse at left, #ff202018, transparent 70%); opacity:1; }
+  .led-card.red.on            { border-color: #ff202060; }
+  .led-card.green.on::before  { background: radial-gradient(ellipse at left, #20ff6018, transparent 70%); opacity:1; }
+  .led-card.green.on          { border-color: #20ff6060; }
+  .led-card.yellow.on::before { background: radial-gradient(ellipse at left, #ffcc0018, transparent 70%); opacity:1; }
+  .led-card.yellow.on         { border-color: #ffcc0060; }
+
+  /* Traffic mode: pulse the active lit bulb */
+  @keyframes bulb-pulse-red    { 0%,100%{box-shadow:0 0 16px var(--red-glow),   0 0 40px var(--red-glow)}   50%{box-shadow:0 0 28px #ff202099, 0 0 64px #ff202055} }
+  @keyframes bulb-pulse-green  { 0%,100%{box-shadow:0 0 16px var(--green-glow), 0 0 40px var(--green-glow)} 50%{box-shadow:0 0 28px #20ff6099, 0 0 64px #20ff6055} }
+  @keyframes bulb-pulse-yellow { 0%,100%{box-shadow:0 0 16px var(--yellow-glow),0 0 40px var(--yellow-glow)}50%{box-shadow:0 0 28px #ffcc0099, 0 0 64px #ffcc0055} }
+
+  .traffic-mode .led-card.red.on    .bulb-body { animation: bulb-pulse-red    1s ease-in-out infinite; }
+  .traffic-mode .led-card.green.on  .bulb-body { animation: bulb-pulse-green  1s ease-in-out infinite; }
+  .traffic-mode .led-card.yellow.on .bulb-body { animation: bulb-pulse-yellow 0.7s ease-in-out infinite; }
+
+  /* Bulb */
+  .led-bulb { position:relative; width:52px; height:52px; flex-shrink:0; z-index:1; }
+  .bulb-body {
+    width:100%; height:100%; border-radius:50% 50% 45% 45%;
+    background:#1a1a1a; border:2px solid #2a2a2a; transition:all 0.3s;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .bulb-inner { width:60%; height:60%; border-radius:50%; background:#111; transition:all 0.3s; }
+
+  .led-card.red.on .bulb-body    { background:var(--red-on);    border-color:#ff6060; box-shadow:0 0 16px var(--red-glow),   0 0 40px var(--red-glow),   inset 0 0 10px #ffffff30; }
+  .led-card.red.on .bulb-inner   { background:#ffaaaa; }
+  .led-card.green.on .bulb-body  { background:var(--green-on);  border-color:#60ff90; box-shadow:0 0 16px var(--green-glow), 0 0 40px var(--green-glow), inset 0 0 10px #ffffff30; }
+  .led-card.green.on .bulb-inner { background:#aaffcc; }
+  .led-card.yellow.on .bulb-body  { background:var(--yellow-on); border-color:#ffee60; box-shadow:0 0 16px var(--yellow-glow),0 0 40px var(--yellow-glow),inset 0 0 10px #ffffff30; }
+  .led-card.yellow.on .bulb-inner { background:#fff0aa; }
+
+  /* LED Info */
+  .led-info { flex:1; z-index:1; }
+  .led-label { font-family:'Orbitron',monospace; font-size:14px; font-weight:700; letter-spacing:2px; margin-bottom:4px; }
+  .led-card.red .led-label    { color:#ff6060; }
+  .led-card.green .led-label  { color:#60ff90; }
+  .led-card.yellow .led-label { color:#ffdd40; }
+  .led-pin { font-size:10px; color:var(--dim); letter-spacing:1px; }
+
+  /* Toggle */
+  .toggle { position:relative; width:52px; height:28px; flex-shrink:0; z-index:1; }
+  .toggle-track {
+    width:100%; height:100%; border-radius:14px;
+    background:#1a1a2a; border:1px solid var(--border);
+    transition:all 0.3s; position:relative; overflow:hidden;
+  }
+  .toggle-thumb {
+    position:absolute; top:3px; left:3px;
+    width:20px; height:20px; border-radius:50%;
+    background:var(--dim);
+    transition:all 0.3s cubic-bezier(0.34,1.56,0.64,1);
+  }
+  .led-card.red.on .toggle-track    { background:#1a0505; border-color:var(--red-on); }
+  .led-card.red.on .toggle-thumb    { background:var(--red-on);    left:27px; box-shadow:0 0 8px var(--red-glow); }
+  .led-card.green.on .toggle-track  { background:#051205; border-color:var(--green-on); }
+  .led-card.green.on .toggle-thumb  { background:var(--green-on);  left:27px; box-shadow:0 0 8px var(--green-glow); }
+  .led-card.yellow.on .toggle-track { background:#151005; border-color:var(--yellow-on); }
+  .led-card.yellow.on .toggle-thumb { background:var(--yellow-on); left:27px; box-shadow:0 0 8px var(--yellow-glow); }
+
+  /* Action buttons */
+  .actions { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .btn {
+    background:var(--panel); border:1px solid var(--border);
+    border-radius:4px; color:var(--dim);
+    font-family:'Share Tech Mono',monospace; font-size:11px;
+    letter-spacing:2px; padding:12px; cursor:pointer;
+    transition:all 0.2s; text-transform:uppercase;
+  }
+  .btn:hover:not(:disabled) { border-color:#4040aa; color:var(--text); background:#0f0f20; }
+  .btn:active:not(:disabled) { transform:scale(0.97); }
+  .btn.danger:hover:not(:disabled) { border-color:var(--red-on); color:var(--red-on); }
+  .btn:disabled { opacity:0.4; cursor:not-allowed; }
+
+  .btn.traffic-active {
+    border-color:var(--yellow-on) !important;
+    color:var(--yellow-on) !important;
+    background:#15100a !important;
+    animation:traffic-pulse 1.2s infinite;
+  }
+  @keyframes traffic-pulse {
+    0%,100% { box-shadow:0 0 10px #ffcc0030; }
+    50%      { box-shadow:0 0 22px #ffcc0060; }
+  }
+
+  /* Log */
+  .log {
+    margin-top:20px; background:var(--panel); border:1px solid var(--border);
+    border-radius:4px; padding:12px 14px; font-size:10px; color:var(--dim);
+    height:80px; overflow-y:auto; line-height:1.7;
+  }
+  .log-entry       { color:#5a5a8a; }
+  .log-entry.event { color:#7070cc; }
+  .log-entry.ok    { color:#40aa60; }
+  .log-entry.err   { color:#aa4040; }
+
+  ::-webkit-scrollbar { width:4px; }
+  ::-webkit-scrollbar-track { background:transparent; }
+  ::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div class="title">LED Control</div>
+    <div class="subtitle">ESP32 · WebSocket · GPIO</div>
+  </header>
+
+  <div class="status-bar">
+    <div class="status-dot" id="dot"></div>
+    <span id="statusText">連線中...</span>
+  </div>
+
+  <div class="traffic-badge" id="trafficBadge">
+    <div class="traffic-badge-dot"></div>
+    <span>交通燈模式運行中</span>
+    <div class="traffic-seq">
+      <div class="seq-dot" id="seq-red"></div>
+      <div class="seq-dot" id="seq-yellow"></div>
+      <div class="seq-dot" id="seq-green"></div>
+    </div>
+  </div>
+
+  <div class="led-grid">
+    <div class="led-card red" id="card-red" onclick="toggle('red')">
+      <div class="led-bulb"><div class="bulb-body"><div class="bulb-inner"></div></div></div>
+      <div class="led-info">
+        <div class="led-label">RED</div>
+        <div class="led-pin" id="pin-red">GPIO 23 · 點擊切換</div>
+      </div>
+      <div class="toggle"><div class="toggle-track"><div class="toggle-thumb"></div></div></div>
+    </div>
+
+    <div class="led-card green" id="card-green" onclick="toggle('green')">
+      <div class="led-bulb"><div class="bulb-body"><div class="bulb-inner"></div></div></div>
+      <div class="led-info">
+        <div class="led-label">GREEN</div>
+        <div class="led-pin" id="pin-green">GPIO 22 · 點擊切換</div>
+      </div>
+      <div class="toggle"><div class="toggle-track"><div class="toggle-thumb"></div></div></div>
+    </div>
+
+    <div class="led-card yellow" id="card-yellow" onclick="toggle('yellow')">
+      <div class="led-bulb"><div class="bulb-body"><div class="bulb-inner"></div></div></div>
+      <div class="led-info">
+        <div class="led-label">YELLOW</div>
+        <div class="led-pin" id="pin-yellow">GPIO 21 · 點擊切換</div>
+      </div>
+      <div class="toggle"><div class="toggle-track"><div class="toggle-thumb"></div></div></div>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button class="btn" id="btnAllOn"   onclick="allOn()">全部開燈</button>
+    <button class="btn danger"          onclick="allOff()">全部關燈</button>
+    <button class="btn" id="btnTraffic" onclick="toggleTraffic()">交通燈模式</button>
+    <button class="btn"                 onclick="reconnect()">重新連線</button>
+  </div>
+
+  <div class="log" id="log"></div>
+</div>
+
+<script>
+  // ─── WebSocket ────────────────────────────────────────
+  const WS_URL = 'ws://' + location.hostname;
+  let ws = null;
+  let manualReconnect = false;   // 標記是否為手動重連，避免 onclose 觸發自動重連
+  let state = { red: false, green: false, yellow: false };
+
+  // ─── 交通燈狀態 ───────────────────────────────────────
+  let trafficOn    = false;
+  let trafficTimer = null;
+  let trafficStep  = 0;
+  // 序列：紅 → 黃 → 綠 → 黃 → 循環
+  const SEQ      = ['red', 'green', 'yellow'];
+  const INTERVAL = 2000; // ms
+
+  // ─── 工具 ─────────────────────────────────────────────
+  function log(msg, type = 'event') {
+    const el  = document.getElementById('log');
+    const now = new Date().toLocaleTimeString('zh-TW', { hour12: false });
+    el.innerHTML += '<div class="log-entry ' + type + '">[' + now + '] ' + msg + '</div>';
+    el.scrollTop  = el.scrollHeight;
+  }
+
+  function setStatus(status, text) {
+    document.getElementById('dot').className =
+      'status-dot' + (status === 'ok' ? ' connected' : status === 'err' ? ' error' : '');
+    document.getElementById('statusText').textContent = text;
+  }
+
+  // ─── 連線 ─────────────────────────────────────────────
+  function connect() {
+    setStatus('', '連線中...');
+    try { ws = new WebSocket(WS_URL); }
+    catch(e) {
+      setStatus('err', '無法建立連線');
+      log('連線失敗: ' + e, 'err');
+      setTimeout(connect, 5000);
+      return;
+    }
+
+    ws.onopen = () => {
+      setStatus('ok', '已連線 · ' + location.hostname);
+      log('WebSocket 連線成功', 'ok');
+    };
+
+    ws.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (data.type === 'state') { state = data.leds; updateLedUI(); }
+      } catch(err) { log('解析錯誤: ' + err, 'err'); }
+    };
+
+    ws.onclose = () => {
+      setStatus('err', '連線已斷開');
+      ws = null;
+      if (!manualReconnect) {
+        log('連線中斷，5 秒後自動重連...', 'err');
+        setTimeout(connect, 5000);
+      }
+    };
+
+    ws.onerror = () => {
+      setStatus('err', '連線錯誤');
+      log('WebSocket 錯誤', 'err');
+    };
+  }
+
+  function send(obj) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(obj));
+    }
+    // 靜默失敗：不顯示錯誤，交通燈模式下等重連即可繼續
+  }
+
+  // ─── 手動重新連線：修正問題 1 ─────────────────────────
+  function reconnect() {
+    manualReconnect = true;   // 先設旗標，讓 onclose 不觸發自動重連
+    if (ws) {
+      ws.close();
+      ws = null;
+    }
+    manualReconnect = false;  // 關閉後清除旗標
+    log('手動重新連線...', 'event');
+    connect();                // 直接重新建立連線
+  }
+
+  // ─── 手動燈號 ─────────────────────────────────────────
+  function toggle(color) {
+    if (trafficOn) return;
+    send({ type: 'toggle', color: color });
+    log('切換 ' + color.toUpperCase());
+  }
+
+  function allOn() {
+    if (trafficOn) return;
+    ['red', 'green', 'yellow'].forEach(function(c) {
+      send({ type: 'set', color: c, value: true });
+    });
+    log('全部開燈', 'ok');
+  }
+
+  function allOff() {
+    if (trafficOn) stopTrafficMode();
+    send({ type: 'all_off' });
+    log('全部關燈');
+  }
+
+  // ─── 交通燈模式：修正問題 2 & 3 ──────────────────────
+  function toggleTraffic() {
+    if (trafficOn) { stopTrafficMode(); } else { startTrafficMode(); }
+  }
+
+  function startTrafficMode() {
+    trafficOn   = true;
+    trafficStep = 0;
+    updateTrafficUI();
+
+    // 先全關再開始
+    send({ type: 'all_off' });
+    state = { red: false, green: false, yellow: false };
+    updateLedUI();
+    log('交通燈模式啟動 🚦', 'ok');
+
+    // 延遲 300ms 讓 all_off 先執行
+    setTimeout(function() {
+      runStep();
+      trafficTimer = setInterval(runStep, INTERVAL);
+    }, 300);
+  }
+
+  function runStep() {
+    if (!trafficOn) return;
+    var color = SEQ[trafficStep % SEQ.length];
+
+    // 用單一 set_all 指令同時設定三顆，避免多封包解析問題
+    var next = { red: false, green: false, yellow: false };
+    next[color] = true;
+    send({ type: 'set_all', leds: next });
+
+    // 立刻更新本地 state 和大圖 UI，不等 ESP32 回傳
+    state = { red: next.red, green: next.green, yellow: next.yellow };
+    updateLedUI();
+    updateSeqDots(color);
+    trafficStep++;
+  }
+
+  function stopTrafficMode() {
+    trafficOn = false;
+    if (trafficTimer) { clearInterval(trafficTimer); trafficTimer = null; }
+    trafficStep = 0;
+    updateTrafficUI();
+    clearSeqDots();
+    log('交通燈模式停止', 'event');
+  }
+
+  // ─── UI 更新 ──────────────────────────────────────────
+  function updateLedUI() {
+    ['red', 'green', 'yellow'].forEach(function(color) {
+      var card = document.getElementById('card-' + color);
+      if (state[color]) { card.classList.add('on'); }
+      else              { card.classList.remove('on'); }
+    });
+  }
+
+  var PIN_MAP = { red: 23, green: 22, yellow: 21 };
+
+  function updateTrafficUI() {
+    var badge  = document.getElementById('trafficBadge');
+    var btnT   = document.getElementById('btnTraffic');
+    var btnAll = document.getElementById('btnAllOn');
+    var grid   = document.querySelector('.led-grid');
+
+    if (trafficOn) {
+      badge.classList.add('visible');
+      btnT.classList.add('traffic-active');
+      btnT.textContent  = '交通燈 OFF';
+      btnAll.disabled   = true;
+      grid.classList.add('traffic-mode');
+      ['red', 'green', 'yellow'].forEach(function(c) {
+        document.getElementById('card-' + c).classList.add('disabled');
+        document.getElementById('pin-' + c).textContent =
+          'GPIO ' + PIN_MAP[c] + ' · 交通燈模式中';
+      });
+    } else {
+      badge.classList.remove('visible');
+      btnT.classList.remove('traffic-active');
+      btnT.textContent = '交通燈模式';
+      btnAll.disabled  = false;
+      grid.classList.remove('traffic-mode');
+      ['red', 'green', 'yellow'].forEach(function(c) {
+        document.getElementById('card-' + c).classList.remove('disabled');
+        document.getElementById('pin-' + c).textContent =
+          'GPIO ' + PIN_MAP[c] + ' · 點擊切換';
+      });
+    }
+  }
+
+  function updateSeqDots(activeColor) {
+    clearSeqDots();
+    var dot = document.getElementById('seq-' + activeColor);
+    if (dot) dot.classList.add(activeColor + '-active');
+  }
+
+  function clearSeqDots() {
+    ['red', 'yellow', 'green'].forEach(function(c) {
+      var d = document.getElementById('seq-' + c);
+      if (d) d.className = 'seq-dot';
+    });
+  }
+
+  // ─── 啟動 ─────────────────────────────────────────────
+  connect();
+</script>
+</body>
+</html>
