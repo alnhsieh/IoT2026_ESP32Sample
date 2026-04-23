@@ -1,0 +1,814 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>環境監控儀表板</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Noto+Sans+TC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:       #0a0d12;
+    --surface:  #111620;
+    --border:   #1e2a3a;
+    --accent:   #00d4ff;
+    --accent2:  #ff6b35;
+    --warn:     #ff3f3f;
+    --ok:       #00e5a0;
+    --muted:    #3a4a5c;
+    --text:     #c8d8e8;
+    --text-dim: #5a7080;
+    --mono:     'Share Tech Mono', monospace;
+    --sans:     'Noto Sans TC', sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    padding: 0;
+    overflow-x: hidden;
+  }
+
+  /* ── scanline overlay ── */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,212,255,0.015) 2px,
+      rgba(0,212,255,0.015) 4px
+    );
+    pointer-events: none;
+    z-index: 999;
+  }
+
+  /* ── header ── */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 28px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 100;
+  }
+
+  .logo {
+    display: flex; align-items: center; gap: 12px;
+  }
+  .logo-icon {
+    width: 36px; height: 36px;
+    border: 2px solid var(--accent);
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+    box-shadow: 0 0 12px rgba(0,212,255,0.3);
+    animation: pulse-border 3s ease-in-out infinite;
+  }
+  @keyframes pulse-border {
+    0%,100% { box-shadow: 0 0 8px rgba(0,212,255,0.3); }
+    50%      { box-shadow: 0 0 20px rgba(0,212,255,0.6); }
+  }
+  .logo-text {
+    font-family: var(--mono);
+    font-size: 14px;
+    color: var(--accent);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+  .logo-sub {
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 3px;
+    margin-top: 2px;
+  }
+
+  .header-right {
+    display: flex; align-items: center; gap: 20px;
+  }
+  .status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--ok);
+    box-shadow: 0 0 8px var(--ok);
+    animation: blink 2s ease-in-out infinite;
+  }
+  .status-dot.offline { background: var(--muted); box-shadow: none; animation: none; }
+  .status-dot.alert   { background: var(--warn); box-shadow: 0 0 10px var(--warn); }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  #device-name-header {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text-dim);
+    letter-spacing: 1px;
+  }
+
+  /* ── alert banner ── */
+  #alert-banner {
+    display: none;
+    background: linear-gradient(90deg, rgba(255,63,63,0.15), rgba(255,63,63,0.05));
+    border-bottom: 1px solid rgba(255,63,63,0.4);
+    padding: 10px 28px;
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--warn);
+    letter-spacing: 1px;
+    animation: flash-bg 1s ease-in-out infinite;
+  }
+  @keyframes flash-bg {
+    0%,100%{ background: linear-gradient(90deg,rgba(255,63,63,0.15),rgba(255,63,63,0.05)); }
+    50%    { background: linear-gradient(90deg,rgba(255,63,63,0.25),rgba(255,63,63,0.08)); }
+  }
+  #alert-banner.active { display: flex; align-items: center; gap: 10px; }
+
+  /* ── main layout ── */
+  .main {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 28px 20px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto;
+    gap: 18px;
+  }
+
+  /* ── card ── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.3s;
+  }
+  .card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    opacity: 0.5;
+  }
+  .card.alert-card { border-color: rgba(255,63,63,0.5); }
+  .card.alert-card::before { background: linear-gradient(90deg, transparent, var(--warn), transparent); }
+
+  .card-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 3px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    margin-bottom: 16px;
+  }
+
+  /* ── gauge cards ── */
+  .gauge-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 32px 24px;
+  }
+
+  .gauge-wrap {
+    position: relative;
+    width: 160px; height: 160px;
+  }
+  .gauge-svg { width: 100%; height: 100%; }
+  .gauge-track { fill: none; stroke: var(--border); stroke-width: 10; }
+  .gauge-fill  {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 10;
+    stroke-linecap: round;
+    stroke-dasharray: 314;
+    stroke-dashoffset: 314;
+    transition: stroke-dashoffset 1s cubic-bezier(.4,0,.2,1), stroke 0.5s;
+    transform: rotate(-90deg);
+    transform-origin: 80px 80px;
+  }
+  .gauge-fill.warn { stroke: var(--warn); }
+  .gauge-fill.ok   { stroke: var(--ok);  }
+  .gauge-center {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+  }
+  .gauge-value {
+    font-family: var(--mono);
+    font-size: 36px;
+    font-weight: normal;
+    color: var(--text);
+    line-height: 1;
+  }
+  .gauge-unit {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-top: 4px;
+  }
+
+  .gauge-label {
+    font-family: var(--mono);
+    font-size: 13px;
+    letter-spacing: 2px;
+    color: var(--text-dim);
+  }
+
+  .gauge-range {
+    display: flex;
+    gap: 16px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .gauge-range span { display: flex; align-items: center; gap: 4px; }
+  .dot-low  { width:6px;height:6px;border-radius:50%;background:#4488ff; }
+  .dot-high { width:6px;height:6px;border-radius:50%;background:var(--warn); }
+
+  /* ── status card ── */
+  .status-card {
+    grid-column: 1 / -1;
+  }
+  .status-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-top: 4px;
+  }
+  .stat-item {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+  }
+  .stat-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+  }
+  .stat-value {
+    font-family: var(--mono);
+    font-size: 16px;
+    color: var(--accent);
+  }
+  .stat-value.ok   { color: var(--ok); }
+  .stat-value.warn { color: var(--warn); }
+
+  /* ── config card ── */
+  .config-card {
+    grid-column: 1 / -1;
+  }
+  .config-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin-top: 4px;
+  }
+  .field-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .field-group label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+  }
+  .field-group input {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 9px 12px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    width: 100%;
+  }
+  .field-group input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(0,212,255,0.1);
+  }
+
+  .threshold-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .section-title {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 2px;
+    color: var(--accent);
+    text-transform: uppercase;
+    margin-bottom: 10px;
+    margin-top: 18px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* ── buttons ── */
+  .btn-row {
+    display: flex;
+    gap: 12px;
+    margin-top: 20px;
+    flex-wrap: wrap;
+  }
+  .btn {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    padding: 10px 22px;
+    border: 1px solid;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: transparent;
+  }
+  .btn-primary {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .btn-primary:hover {
+    background: rgba(0,212,255,0.1);
+    box-shadow: 0 0 16px rgba(0,212,255,0.2);
+  }
+  .btn-danger {
+    color: var(--warn);
+    border-color: var(--warn);
+  }
+  .btn-danger:hover {
+    background: rgba(255,63,63,0.1);
+    box-shadow: 0 0 16px rgba(255,63,63,0.2);
+  }
+  .btn-success {
+    color: var(--ok);
+    border-color: var(--ok);
+  }
+  .btn-success:hover {
+    background: rgba(0,229,160,0.1);
+    box-shadow: 0 0 16px rgba(0,229,160,0.2);
+  }
+
+  /* ── toast ── */
+  #toast {
+    position: fixed;
+    bottom: 28px; right: 28px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 20px;
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text);
+    transform: translateY(80px);
+    opacity: 0;
+    transition: all 0.3s cubic-bezier(.4,0,.2,1);
+    z-index: 1000;
+    max-width: 320px;
+  }
+  #toast.show { transform: translateY(0); opacity: 1; }
+  #toast.toast-ok   { border-color: var(--ok);  color: var(--ok); }
+  #toast.toast-err  { border-color: var(--warn); color: var(--warn); }
+
+  /* ── alert log ── */
+  .alert-log {
+    grid-column: 1 / -1;
+  }
+  .log-list {
+    margin-top: 8px;
+    max-height: 180px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .log-list::-webkit-scrollbar { width: 4px; }
+  .log-list::-webkit-scrollbar-track { background: var(--border); }
+  .log-list::-webkit-scrollbar-thumb { background: var(--muted); border-radius: 2px; }
+  .log-entry {
+    background: rgba(255,63,63,0.06);
+    border: 1px solid rgba(255,63,63,0.2);
+    border-radius: 6px;
+    padding: 10px 14px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .no-alert {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text-dim);
+    padding: 14px 0;
+    text-align: center;
+    letter-spacing: 2px;
+  }
+
+  /* ── footer ── */
+  footer {
+    text-align: center;
+    padding: 20px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 2px;
+    border-top: 1px solid var(--border);
+    margin-top: 10px;
+  }
+
+  /* ── responsive ── */
+  @media (max-width: 680px) {
+    .main { grid-template-columns: 1fr; }
+    .status-card, .config-card, .alert-log { grid-column: 1; }
+    .status-grid { grid-template-columns: 1fr 1fr; }
+    .config-grid { grid-template-columns: 1fr; }
+    header { flex-wrap: wrap; gap: 10px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+  <div class="logo">
+    <div class="logo-icon">🌡</div>
+    <div>
+      <div class="logo-text">ENV MONITOR</div>
+      <div class="logo-sub">TEMPERATURE · HUMIDITY · ALERT</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <span id="device-name-header">載入中...</span>
+    <div id="status-dot" class="status-dot offline"></div>
+  </div>
+</header>
+
+<!-- Alert Banner -->
+<div id="alert-banner">
+  <span>⚠</span>
+  <span id="alert-banner-text">警報觸發中</span>
+</div>
+
+<!-- Main -->
+<div class="main">
+
+  <!-- Temperature Gauge -->
+  <div class="card gauge-card" id="temp-card">
+    <div class="card-label">// 溫度監測</div>
+    <div class="gauge-wrap">
+      <svg class="gauge-svg" viewBox="0 0 160 160">
+        <circle class="gauge-track" cx="80" cy="80" r="50"/>
+        <circle id="temp-gauge" class="gauge-fill" cx="80" cy="80" r="50"/>
+      </svg>
+      <div class="gauge-center">
+        <div class="gauge-value" id="temp-val">--</div>
+        <div class="gauge-unit">°C</div>
+      </div>
+    </div>
+    <div class="gauge-label">TEMPERATURE</div>
+    <div class="gauge-range">
+      <span><span class="dot-low"></span>低限 <span id="temp-low-label">--</span>°C</span>
+      <span><span class="dot-high"></span>高限 <span id="temp-high-label">--</span>°C</span>
+    </div>
+  </div>
+
+  <!-- Humidity Gauge -->
+  <div class="card gauge-card" id="humi-card">
+    <div class="card-label">// 濕度監測</div>
+    <div class="gauge-wrap">
+      <svg class="gauge-svg" viewBox="0 0 160 160">
+        <circle class="gauge-track" cx="80" cy="80" r="50"/>
+        <circle id="humi-gauge" class="gauge-fill" cx="80" cy="80" r="50"/>
+      </svg>
+      <div class="gauge-center">
+        <div class="gauge-value" id="humi-val">--</div>
+        <div class="gauge-unit">%</div>
+      </div>
+    </div>
+    <div class="gauge-label">HUMIDITY</div>
+    <div class="gauge-range">
+      <span><span class="dot-low"></span>低限 <span id="humi-low-label">--</span>%</span>
+      <span><span class="dot-high"></span>高限 <span id="humi-high-label">--</span>%</span>
+    </div>
+  </div>
+
+  <!-- Status -->
+  <div class="card status-card">
+    <div class="card-label">// 系統狀態</div>
+    <div class="status-grid">
+      <div class="stat-item">
+        <div class="stat-label">設備名稱</div>
+        <div class="stat-value" id="stat-name">--</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-label">警報狀態</div>
+        <div class="stat-value ok" id="stat-alert">正常</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-label">最後更新</div>
+        <div class="stat-value" id="stat-update" style="font-size:12px;">--</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-label">讀取間隔</div>
+        <div class="stat-value" id="stat-interval">-- 秒</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Config -->
+  <div class="card config-card">
+    <div class="card-label">// 參數設定</div>
+
+    <div class="section-title">基本設定</div>
+    <div class="config-grid">
+      <div class="field-group">
+        <label>場域名稱</label>
+        <input type="text" id="cfg-name" placeholder="例：機房 A">
+      </div>
+      <div class="field-group">
+        <label>FastAPI 伺服器位址</label>
+        <input type="text" id="cfg-url" placeholder="http://192.168.1.100:8000">
+      </div>
+      <div class="field-group">
+        <label>讀取間隔（秒）</label>
+        <input type="number" id="cfg-interval" min="5" max="3600" placeholder="30">
+      </div>
+      <div class="field-group">
+        <label>警報冷卻（秒）</label>
+        <input type="number" id="cfg-cooldown" min="60" max="86400" placeholder="300">
+      </div>
+    </div>
+
+    <div class="section-title">溫度閾值</div>
+    <div class="threshold-row">
+      <div class="field-group">
+        <label>溫度下限 (°C)</label>
+        <input type="number" id="cfg-temp-low" step="0.5" placeholder="5">
+      </div>
+      <div class="field-group">
+        <label>溫度上限 (°C)</label>
+        <input type="number" id="cfg-temp-high" step="0.5" placeholder="35">
+      </div>
+    </div>
+
+    <div class="section-title">濕度閾值</div>
+    <div class="threshold-row">
+      <div class="field-group">
+        <label>濕度下限 (%)</label>
+        <input type="number" id="cfg-humi-low" step="1" placeholder="10">
+      </div>
+      <div class="field-group">
+        <label>濕度上限 (%)</label>
+        <input type="number" id="cfg-humi-high" step="1" placeholder="85">
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="saveConfig()">▶ 儲存設定</button>
+      <button class="btn btn-success" onclick="testAlert()">✉ 測試 LINE 廣播</button>
+      <button class="btn btn-danger" onclick="clearAlerts()">✕ 清除警報記錄</button>
+    </div>
+  </div>
+
+  <!-- Alert Log -->
+  <div class="card alert-log">
+    <div class="card-label">// 警報記錄</div>
+    <div class="log-list" id="alert-log-list">
+      <div class="no-alert">— 目前無警報 —</div>
+    </div>
+  </div>
+
+</div>
+
+<footer>ESP32 ENV MONITOR v1.0 &nbsp;·&nbsp; 自動刷新每 10 秒</footer>
+<div id="toast"></div>
+
+<script>
+// ── 狀態快取 ──────────────────────────────────────
+let alertMessages = [];
+let currentConfig = {};
+let isOnline = false;
+
+// ── 圓弧儀表計算 ──────────────────────────────────
+// 圓周 = 2π×50 ≈ 314
+const CIRC = 314;
+
+function setGauge(id, value, min, max) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (value === null || value === undefined) {
+    el.style.strokeDashoffset = CIRC;
+    return;
+  }
+  const pct = Math.max(0, Math.min(1, (value - min) / (max - min)));
+  el.style.strokeDashoffset = CIRC * (1 - pct);
+
+  const ratio = (value - min) / (max - min);
+  if (ratio < 0.1 || ratio > 0.9) {
+    el.className = 'gauge-fill warn';
+  } else if (ratio < 0.2 || ratio > 0.8) {
+    el.className = 'gauge-fill';
+  } else {
+    el.className = 'gauge-fill ok';
+  }
+}
+
+// ── 刷新 UI ───────────────────────────────────────
+function refreshUI(data) {
+  const cfg = data.config || {};
+
+  // 設備名稱
+  document.getElementById('device-name-header').textContent = data.device_name || '--';
+  document.getElementById('stat-name').textContent = data.device_name || '--';
+
+  // 溫溼度
+  const temp = data.temp;
+  const humi = data.humi;
+
+  document.getElementById('temp-val').textContent = temp !== null ? temp.toFixed(1) : '--';
+  document.getElementById('humi-val').textContent = humi !== null ? humi.toFixed(1) : '--';
+
+  // 儀表
+  setGauge('temp-gauge', temp, cfg.temp_low - 5, cfg.temp_high + 5);
+  setGauge('humi-gauge', humi, 0, 100);
+
+  // 閾值標籤
+  document.getElementById('temp-low-label').textContent  = cfg.temp_low  ?? '--';
+  document.getElementById('temp-high-label').textContent = cfg.temp_high ?? '--';
+  document.getElementById('humi-low-label').textContent  = cfg.humi_low  ?? '--';
+  document.getElementById('humi-high-label').textContent = cfg.humi_high ?? '--';
+
+  // 狀態列
+  document.getElementById('stat-update').textContent   = data.last_update || '--';
+  document.getElementById('stat-interval').textContent = (cfg.read_interval ?? '--') + ' 秒';
+
+  // 警報狀態
+  const alertEl = document.getElementById('stat-alert');
+  const banner  = document.getElementById('alert-banner');
+  const dot     = document.getElementById('status-dot');
+  const tempCard = document.getElementById('temp-card');
+  const humiCard = document.getElementById('humi-card');
+
+  if (data.alert) {
+    alertEl.textContent = '⚠ 警報中';
+    alertEl.className = 'stat-value warn';
+    banner.classList.add('active');
+    document.getElementById('alert-banner-text').textContent =
+      `警報觸發中 — ${data.device_name} | T:${temp ?? '--'}°C H:${humi ?? '--'}%`;
+    dot.className = 'status-dot alert';
+    tempCard.classList.add('alert-card');
+    humiCard.classList.add('alert-card');
+  } else {
+    alertEl.textContent = '正常';
+    alertEl.className = 'stat-value ok';
+    banner.classList.remove('active');
+    dot.className = 'status-dot';
+    tempCard.classList.remove('alert-card');
+    humiCard.classList.remove('alert-card');
+  }
+
+  // 警報記錄
+  if (data.alert_messages && data.alert_messages.length > 0) {
+    alertMessages = data.alert_messages;
+  }
+  renderAlertLog();
+
+  // 填入設定欄位（初次）
+  if (!currentConfig.device_name) {
+    document.getElementById('cfg-name').value     = data.device_name || '';
+    document.getElementById('cfg-url').value      = cfg.fastapi_url || '';
+    document.getElementById('cfg-interval').value = cfg.read_interval || 30;
+    document.getElementById('cfg-cooldown').value = cfg.alert_cooldown || 300;
+    document.getElementById('cfg-temp-low').value  = cfg.temp_low  ?? 5;
+    document.getElementById('cfg-temp-high').value = cfg.temp_high ?? 35;
+    document.getElementById('cfg-humi-low').value  = cfg.humi_low  ?? 10;
+    document.getElementById('cfg-humi-high').value = cfg.humi_high ?? 85;
+  }
+  currentConfig = cfg;
+}
+
+function renderAlertLog() {
+  const list = document.getElementById('alert-log-list');
+  if (!alertMessages || alertMessages.length === 0) {
+    list.innerHTML = '<div class="no-alert">— 目前無警報 —</div>';
+    return;
+  }
+  list.innerHTML = [...alertMessages].reverse()
+    .map(m => `<div class="log-entry">${escHtml(m)}</div>`)
+    .join('');
+}
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── 輪詢 /api/status ──────────────────────────────
+async function fetchStatus() {
+  try {
+    const resp = await fetch('/api/status', { cache: 'no-store' });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    isOnline = true;
+    document.getElementById('status-dot').classList.remove('offline');
+    refreshUI(data);
+  } catch(e) {
+    isOnline = false;
+    document.getElementById('status-dot').className = 'status-dot offline';
+    document.getElementById('device-name-header').textContent = '離線';
+    console.warn('無法連線到 ESP32:', e);
+  }
+}
+
+// ── 儲存設定 ──────────────────────────────────────
+async function saveConfig() {
+  const payload = {
+    device_name:    document.getElementById('cfg-name').value.trim(),
+    fastapi_url:    document.getElementById('cfg-url').value.trim(),
+    read_interval:  parseInt(document.getElementById('cfg-interval').value) || 30,
+    alert_cooldown: parseInt(document.getElementById('cfg-cooldown').value) || 300,
+    temp_low:       parseFloat(document.getElementById('cfg-temp-low').value),
+    temp_high:      parseFloat(document.getElementById('cfg-temp-high').value),
+    humi_low:       parseFloat(document.getElementById('cfg-humi-low').value),
+    humi_high:      parseFloat(document.getElementById('cfg-humi-high').value),
+  };
+
+  // 驗證
+  if (!payload.device_name) { showToast('請輸入場域名稱', 'err'); return; }
+  if (payload.temp_low >= payload.temp_high) { showToast('溫度下限需小於上限', 'err'); return; }
+  if (payload.humi_low >= payload.humi_high) { showToast('濕度下限需小於上限', 'err'); return; }
+
+  try {
+    const resp = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await resp.json();
+    if (resp.ok) {
+      showToast('✓ 設定已儲存', 'ok');
+      currentConfig = {}; // 強制重新填入
+      fetchStatus();
+    } else {
+      showToast('✗ ' + (data.message || '儲存失敗'), 'err');
+    }
+  } catch(e) {
+    showToast('✗ 無法連線到 ESP32', 'err');
+  }
+}
+
+// ── 測試警報 ──────────────────────────────────────
+async function testAlert() {
+  try {
+    const resp = await fetch('/api/test_alert', { method: 'POST' });
+    const data = await resp.json();
+    showToast(data.status === 'ok' ? '✉ 測試廣播已發送' : '✗ ' + data.message,
+              data.status === 'ok' ? 'ok' : 'err');
+  } catch(e) {
+    showToast('✗ 無法連線到 ESP32', 'err');
+  }
+}
+
+// ── 清除記錄 ──────────────────────────────────────
+function clearAlerts() {
+  alertMessages = [];
+  renderAlertLog();
+  showToast('警報記錄已清除', 'ok');
+}
+
+// ── Toast ─────────────────────────────────────────
+let toastTimer;
+function showToast(msg, type='ok') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'show toast-' + type;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.className = ''; }, 3000);
+}
+
+// ── 啟動 ─────────────────────────────────────────
+fetchStatus();
+setInterval(fetchStatus, 10000);
+</script>
+</body>
+</html>
